@@ -260,6 +260,7 @@ th{background:#eee!important;-webkit-print-color-adjust:exact}
     <div style="display:flex;align-items:center;gap:12px;font-size:12px;">
       <span class="save-status" id="saveStatus">✓ Tersimpan</span>
       <span class="sync-status" id="syncStatus" style="font-size:11px;color:#2980b9;font-style:italic;cursor:pointer;" title="Klik untuk mencoba sinkronisasi sekarang" onclick="manualTriggerSync()">🌐 Sync: Ready</span>
+      <button id="btnOpenDrive" style="display:none;background:#27ae60;padding:4px 8px;font-size:11px;border-radius:4px;border:none;color:#fff;cursor:pointer;" onclick="window.open(googleDriveLink, '_blank')" title="Buka Folder Google Drive">📂 Buka Folder</button>
     </div>
   </div>
   <input type="file" id="excelFileAll" style="display:none" accept=".xlsx,.xls" onchange="importExcelAll(event)">
@@ -442,6 +443,18 @@ th{background:#eee!important;-webkit-print-color-adjust:exact}
   <h3 style="color:#2980b9">🌐 Koneksi Google Apps Script &amp; Spreadsheet</h3>
   <p>Hubungkan aplikasi dengan Google Spreadsheet untuk sinkronisasi otomatis data daftar nilai siswa secara real-time / offline auto-sync.</p>
 
+  <div class="modal-field">
+    <label for="gasAccountInput">Nama Akun Google:</label>
+    <input type="text" id="gasAccountInput" placeholder="Contoh: guru.gondang@gmail.com">
+  </div>
+  <div class="modal-field">
+    <label for="gasFolderInput">Nama Folder di Drive:</label>
+    <input type="text" id="gasFolderInput" placeholder="Contoh: Daftar Nilai 2026">
+  </div>
+  <div class="modal-field">
+    <label for="gasLinkInput">Link Folder Google Drive:</label>
+    <input type="url" id="gasLinkInput" placeholder="https://drive.google.com/drive/folders/...">
+  </div>
   <div class="modal-field">
     <label for="gasUrlInput">Web App URL Google Apps Script:</label>
     <input type="url" id="gasUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
@@ -652,8 +665,14 @@ function migrateClass(c,fallback=DEFAULT_JUMLAH_SISWA){
 
 const GAS_URL_KEY = 'smkn1gondang_gas_url';
 const GAS_QUEUE_KEY = 'smkn1gondang_gas_queue';
+const GAS_ACCOUNT_KEY = 'smkn1gondang_gas_account';
+const GAS_FOLDER_KEY = 'smkn1gondang_gas_folder';
+const GAS_LINK_KEY = 'smkn1gondang_gas_link';
 let gasUrl = '';
 let gasQueue = [];
+let googleAccount = '';
+let googleFolder = '';
+let googleDriveLink = '';
 
 const GAS_SCRIPT_CODE = `function doPost(e) {
   try {
@@ -704,6 +723,9 @@ function doGet(e) {
 
 function openGasModal() {
   document.getElementById('gasUrlInput').value = gasUrl || '';
+  document.getElementById('gasAccountInput').value = googleAccount || '';
+  document.getElementById('gasFolderInput').value = googleFolder || '';
+  document.getElementById('gasLinkInput').value = googleDriveLink || '';
   const codeBox = document.getElementById('gasCodeBox');
   if (codeBox) codeBox.value = GAS_SCRIPT_CODE;
   document.getElementById('gasModal').classList.add('active');
@@ -711,6 +733,21 @@ function openGasModal() {
 
 function closeGasModal() {
   document.getElementById('gasModal').classList.remove('active');
+}
+
+function updateDriveButton() {
+  const btn = document.getElementById('btnOpenDrive');
+  if (btn) {
+    if (googleDriveLink && googleDriveLink.trim() !== '') {
+      btn.style.display = 'inline-block';
+      let title = 'Buka Folder';
+      if (googleAccount) title += `\nAkun: ${googleAccount}`;
+      if (googleFolder) title += `\nFolder: ${googleFolder}`;
+      btn.title = title;
+    } else {
+      btn.style.display = 'none';
+    }
+  }
 }
 
 function copyGasCode() {
@@ -729,11 +766,24 @@ function copyGasCode() {
 
 function saveGasUrl() {
   const input = document.getElementById('gasUrlInput').value.trim();
+  const accInput = document.getElementById('gasAccountInput').value.trim();
+  const folInput = document.getElementById('gasFolderInput').value.trim();
+  const linkInput = document.getElementById('gasLinkInput').value.trim();
+
   gasUrl = input;
+  googleAccount = accInput;
+  googleFolder = folInput;
+  googleDriveLink = linkInput;
+
   lsSet(GAS_URL_KEY, gasUrl);
+  lsSet(GAS_ACCOUNT_KEY, googleAccount);
+  lsSet(GAS_FOLDER_KEY, googleFolder);
+  lsSet(GAS_LINK_KEY, googleDriveLink);
+
   autoSave();
   closeGasModal();
   updateQueueDisplay();
+  updateDriveButton();
   if (gasUrl) syncCurrentClassToGas();
 }
 
@@ -1005,7 +1055,8 @@ function collectAppState(mode='full'){
   return {version:7,mapel:String(document.getElementById('mapel').value),
     kktp:String(document.getElementById('kktp').value),guru:document.getElementById('guru').value,
     semester:document.getElementById('semester').value,tahun:document.getElementById('tahun').value,
-    gasUrl,currentClass:0,mapelList:JSON.parse(JSON.stringify(mapelList)),
+    gasUrl,googleAccount,googleFolder,googleDriveLink,
+    currentClass:0,mapelList:JSON.parse(JSON.stringify(mapelList)),
     uhList:[...uhList],tugasList:[...tugasList],
     classData:classData.map(c=>{
       const ts=c.totalSiswa||DEFAULT_JUMLAH_SISWA;
@@ -1027,7 +1078,14 @@ function loadData(){
       setMapelValue(p.mapel);setKktpValue(p.kktp??75);
       document.getElementById('guru').value=p.guru??'[Nama Anda, S.Pd.]';
       document.getElementById('semester').value=p.semester??'Semester Gasal';
-      document.getElementById('tahun').value=p.tahun??'2026/2027'; gasUrl=p.gasUrl||lsGet(GAS_URL_KEY)||''; try{gasQueue=JSON.parse(lsGet(GAS_QUEUE_KEY)||'[]');}catch(e){gasQueue=[];} updateQueueDisplay();
+      document.getElementById('tahun').value=p.tahun??'2026/2027';
+      gasUrl=p.gasUrl||lsGet(GAS_URL_KEY)||'';
+      googleAccount=p.googleAccount||lsGet(GAS_ACCOUNT_KEY)||'';
+      googleFolder=p.googleFolder||lsGet(GAS_FOLDER_KEY)||'';
+      googleDriveLink=p.googleDriveLink||lsGet(GAS_LINK_KEY)||'';
+      try{gasQueue=JSON.parse(lsGet(GAS_QUEUE_KEY)||'[]');}catch(e){gasQueue=[];}
+      updateQueueDisplay();
+      updateDriveButton();
       const idx=parseInt(p.currentClass);
       currentClass=(!isNaN(idx)&&idx>=0&&idx<classData.length)?idx:0;
     }catch(e){initEmptyData();setDefaultSelections();}
@@ -1070,7 +1128,11 @@ function saveData(){
     guru:document.getElementById('guru').value,semester:document.getElementById('semester').value,
     tahun:document.getElementById('tahun').value,currentClass,uhList,tugasList,
     classData:classData.map(c=>({name:c.name,waliKelas:c.waliKelas||'',students:(c.students||[]).slice(0,c.totalSiswa||DEFAULT_JUMLAH_SISWA).map(migrateStudent),mapelId:c.mapelId,kktp:c.kktp||DEFAULT_KKTP,totalSiswa:c.totalSiswa||DEFAULT_JUMLAH_SISWA}))};
-  data.gasUrl=gasUrl; lsSet(STORAGE_KEY,JSON.stringify(data));
+  data.gasUrl=gasUrl;
+  data.googleAccount=googleAccount;
+  data.googleFolder=googleFolder;
+  data.googleDriveLink=googleDriveLink;
+  lsSet(STORAGE_KEY,JSON.stringify(data));
   document.getElementById('saveStatus').innerText=storageOK?'✓ Tersimpan':'⚠ Hanya sesi ini';
 }
 function autoSave(){
